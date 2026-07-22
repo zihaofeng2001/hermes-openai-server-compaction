@@ -1,0 +1,11 @@
+name: openai-server-compaction
+version: 0.1.0
+description: >-
+  Dual-path context engine for Hermes Agent: OpenAI Responses server-side
+  compaction (encrypted compaction_summary artifact) layered on top of the
+  built-in portable text summary. Falls back to stock text compression on
+  non-OpenAI backends or any server failure.
+author: Zihao Feng
+kind: standalone
+provides_tools: []
+provides_hooks: []
