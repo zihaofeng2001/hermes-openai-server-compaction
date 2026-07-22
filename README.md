@@ -172,9 +172,6 @@ python tests/live_smoke.py /path/to/hermes-agent [model]
 - **No multi-artifact chaining strategy beyond "newest wins".** Each new
   compaction folds prior state into a fresh artifact and stale artifacts
   are stripped.
-- Recall-quality claims for server-side compaction versus text summaries
-  come from upstream projects' benchmarks (see the Pi extension's report);
-  this repository verifies the mechanism, not a quality delta.
 
 ## License
 
