@@ -55,11 +55,52 @@ shape 0.144.1):
 - `/responses/compact` returns HTTP 200 with retained messages + one
   `compaction_summary` item.
 - The opaque item survives Hermes's `_chat_messages_to_responses_input`
-  adapter untouched and replays cleanly on follow-up `/responses` calls.
+  adapter **and the core request preflight** (see the compatibility
+  section below — the preflight is a separate gate and the one that
+  bites), and replays cleanly on follow-up `/responses` calls.
 - **Strict fidelity check**: facts planted only in assistant turns (which
   get folded into the encrypted blob, absent from all retained plaintext)
   are recalled exactly after compaction — the blob demonstrably carries
   conversation state, not just decoration.
+
+## ⚠️ Hermes core compatibility — read before enabling
+
+Hermes validates every outgoing Codex Responses request **locally** before
+it touches the network (`_preflight_codex_input_items()` in
+`agent/codex_responses_adapter.py`). Core builds whose validator has no
+`compaction_summary` branch reject the replayed artifact on **every turn
+after the first compaction**:
+
+```text
+Codex Responses input[N] has unsupported item shape
+(type='compaction_summary', role=None).
+```
+
+The symptom is nasty because nothing crashes: each turn fails preflight
+and Hermes silently switches to your fallback model (you'll see a
+"🔄 Switched to fallback model: ... → ..." status message). The session
+is effectively locked off your OpenAI backend until reset. We shipped
+this plugin, tested the compact call and a raw `/responses` replay, and
+still got bitten — the raw replay bypassed the preflight.
+
+**Check your core before enabling:**
+
+```bash
+grep -n "compaction_summary" \
+  /path/to/hermes-agent/agent/codex_responses_adapter.py
+```
+
+- **Hit** → your core replays the artifact; you're fine.
+- **No hit** → your core will reject it. Either apply
+  [`docs/hermes-core-compaction-preflight.patch`](docs/hermes-core-compaction-preflight.patch)
+  (adds the branch: send only `{type, encrypted_content}`, strip
+  `id`/`_issuer_kind`, dedupe by id, keep the cross-issuer guard), or set
+  `context.openai_server_compaction.enabled: false` to stay text-only
+  until your core supports it.
+
+`tests/live_smoke.py` now runs the compacted request through the real
+core preflight before the live call, so it fails loudly on an
+unpatched core instead of green-lighting a broken deployment.
 
 ## Requirements
 
@@ -163,12 +204,14 @@ python tests/live_smoke.py /path/to/hermes-agent [model]
 - **Single-provider artifact.** The encrypted item only helps while you
   stay on the same OpenAI Responses backend. Cross-provider continuity is
   handled by the text-summary layer.
-- **The `compaction_summary` passthrough relies on Hermes's
-  `codex_reasoning_items` replay channel accepting non-`reasoning` opaque
-  items.** This is true of current Hermes (the replay filter keys on
-  `encrypted_content`, not `type`) and is covered by the live smoke test,
-  but it is not a documented contract. If a future Hermes release
-  restricts the channel, the plugin degrades to text-only compression.
+- **The `compaction_summary` passthrough relies on two Hermes core
+  behaviors**: the `codex_reasoning_items` replay channel accepting
+  non-`reasoning` opaque items (true today — the channel filter keys on
+  `encrypted_content`, not `type`), **and** the request preflight
+  explicitly allowing the `compaction_summary` item type (NOT true of
+  all core builds — see the compatibility section above). The live smoke
+  test exercises both. If a future Hermes release restricts either, the
+  plugin degrades to text-only compression.
 - **No multi-artifact chaining strategy beyond "newest wins".** Each new
   compaction folds prior state into a fresh artifact and stale artifacts
   are stripped.

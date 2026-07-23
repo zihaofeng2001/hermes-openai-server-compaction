@@ -1,0 +1,35 @@
+diff --git a/agent/codex_responses_adapter.py b/agent/codex_responses_adapter.py
+index bce372ebb..4b03f72e3 100644
+--- a/agent/codex_responses_adapter.py
++++ b/agent/codex_responses_adapter.py
+@@ -712,6 +712,30 @@ def _preflight_codex_input_items(
+                 normalized.append(reasoning_item)
+             continue
+ 
++        if item_type == "compaction_summary":
++            # Server-side compaction artifact from POST /responses/compact
++            # (attached to history via the codex_reasoning_items replay
++            # channel, e.g. by the openai-server-compaction context
++            # engine).  Same replay contract as encrypted reasoning: the
++            # blob is opaque, sealed to its issuing endpoint, and must be
++            # sent back as {type, encrypted_content} only.  Strip "id"
++            # (store=False lookups 404) and any Hermes-internal metadata
++            # keys such as "_issuer_kind"; dedupe by id like reasoning.
++            encrypted = item.get("encrypted_content")
++            if isinstance(encrypted, str) and encrypted:
++                item_id = item.get("id")
++                if isinstance(item_id, str) and item_id:
++                    if item_id in seen_ids:
++                        continue
++                    seen_ids.add(item_id)
++                normalized.append(
++                    {
++                        "type": "compaction_summary",
++                        "encrypted_content": encrypted,
++                    }
++                )
++            continue
++
+         if item_type == "message":
+             role = item.get("role")
+             if role != "assistant":

@@ -31,6 +31,7 @@ def main() -> int:
     from engine import ServerCompactionEngine, classify_issuer  # noqa: E402
     from agent.codex_responses_adapter import (  # noqa: E402
         _chat_messages_to_responses_input,
+        _preflight_codex_api_kwargs,
     )
     from hermes_cli.auth import resolve_codex_runtime_credentials  # noqa: E402
 
@@ -83,6 +84,38 @@ def main() -> int:
     converted = _chat_messages_to_responses_input(
         compacted, replay_encrypted_reasoning=True,
         current_issuer_kind=classify_issuer(base_url))
+
+    # [3.5] Run the REAL core preflight — the gate the production request
+    # path applies before any network call. A core whose validator lacks a
+    # compaction_summary branch raises ValueError here ("unsupported item
+    # shape"); catching it at smoke time prevents shipping a deployment
+    # that permanently falls back off the OpenAI backend after the first
+    # compaction (2026-07-22 incident).
+    try:
+        preflighted = _preflight_codex_api_kwargs({
+            "model": model,
+            "instructions": "You are a helpful assistant.",
+            "input": converted,
+            "tools": [],
+            "parallel_tool_calls": False,
+            "store": False,
+        })
+    except ValueError as exc:
+        print(f"[3.5] FAIL — core preflight rejects the compacted request: "
+              f"{exc}")
+        print("      Your hermes-agent core does not accept "
+              "compaction_summary items. Apply "
+              "docs/hermes-core-compaction-preflight.patch or disable the "
+              "server path.")
+        return 1
+    converted = preflighted["input"]
+    surviving = sum(1 for it in converted
+                    if it.get("type") == "compaction_summary")
+    print(f"[3.5] core preflight PASS: {surviving} artifact(s) survive "
+          "into the outgoing request")
+    if surviving == 0:
+        print("FAIL: preflight silently dropped the artifact")
+        return 1
 
     headers = {
         "Authorization": f"Bearer {api_key}",
