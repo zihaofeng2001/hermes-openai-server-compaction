@@ -1,5 +1,33 @@
 # hermes-openai-server-compaction
 
+> ## 📦 Archived (2026-09-17) — do not install
+>
+> **This plugin no longer works.** Two upstream changes since the July 2026
+> release broke it, and neither is a small fix:
+>
+> 1. **The endpoint is gone.** The whole plugin is built on a unary
+>    `POST /responses/compact`. Searching the current `openai/codex` tree for
+>    `responses/compact` returns zero hits, and the file this README cites
+>    (`codex-rs/core/src/compact_remote_request.rs`) no longer exists. Codex
+>    moved to a *streaming* v2 path (`compact_remote_v2.rs`,
+>    `CompactionImplementation::ResponsesCompactionV2`) that runs compaction
+>    over the ordinary `/responses` stream. Porting to it is a rewrite, not a
+>    patch.
+> 2. **The artifact type was renamed.** In `codex-protocol/src/models.rs` the
+>    item is now `ResponseItem::Compaction` (wire type `compaction`), with
+>    `compaction_summary` kept only as a deserialization `alias`. This repo
+>    filters on `type == "compaction_summary"`, so a renamed response yields
+>    *no* artifact and the engine falls back to text-only compression with a
+>    single log warning — silent degradation, not an error.
+>
+> Also stale: `docs/hermes-core-compaction-preflight.patch` no longer applies
+> (`_preflight_codex_input_items` drifted from line ~712 to ~963), and the
+> pinned Codex client version `0.144.1` is well behind current.
+>
+> Left up for reference. If you install it anyway on an unpatched Hermes core,
+> expect the silent fallback-model switch described in the compatibility
+> section below.
+
 **OpenAI server-side compaction for [Hermes Agent](https://github.com/NousResearch/hermes-agent) — a dual-path context engine plugin.**
 
 When a long Hermes conversation approaches the model's context limit, the
